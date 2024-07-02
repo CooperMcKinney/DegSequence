@@ -1,9 +1,17 @@
 import streamlit as st
 import re
 from collections import Counter
-from io import BytesIO
 import matplotlib.pyplot as plt
 import numpy as np
+import psutil
+
+# Function to log memory usage
+def log_memory_usage():
+    process = psutil.Process()
+    memory_info = process.memory_info()
+    st.write(f"Memory Usage: {memory_info.rss / (1024 * 1024)} MB")
+
+st.write("Max upload size:", st.config.get_option("server.maxUploadSize"))
 
 def reverse_complement_sequence(sequence):
     complement = str.maketrans('ACGTacgt', 'TGCAtgca')
@@ -30,7 +38,7 @@ def plot_normalized_counts(normalized_counts, label=None):
 
 def sequence_analysis_page(page_title, key_prefix, session_state_key):
     st.title(page_title)
-
+    log_memory_usage()
     uploaded_file = st.file_uploader("Upload a FASTQ or FASTQSanger file", type=["fastq", "fastqsanger", "txt"], key=key_prefix)
 
     if uploaded_file is not None:
@@ -47,132 +55,31 @@ def sequence_analysis_page(page_title, key_prefix, session_state_key):
             if trimmed_pattern:
                 degseq_matches = extract_pattern("\n".join(matches), trimmed_pattern)
                 sorted_counts = sort_and_count_sequences(degseq_matches)
+                normalized_counts = normalize_counts(sorted_counts)
 
                 st.write("### Sorted Unique Sequences by Frequency")
                 col1, col2 = st.columns(2)
-
                 with col1:
-                    sorted_counts_text = "\n".join([f"{count} {seq}" for seq, count in sorted_counts])
-                    st.text(sorted_counts_text)
-
-                    sorted_counts_file = BytesIO()
-                    sorted_counts_file.write(sorted_counts_text.encode())
-                    sorted_counts_file.seek(0)
-
-                    st.download_button(
-                        label="Download Sorted Unique Sequences",
-                        data=sorted_counts_file,
-                        file_name="sorted_unique_sequences.txt",
-                        mime="text/plain"
-                    )
-
-                normalized_counts = normalize_counts(sorted_counts)
-                st.session_state[session_state_key] = normalized_counts
-
+                    sorted_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in normalized_counts])
+                    st.text_area("Normalized Counts", sorted_counts_text, height=400)
+                    download_button = st.download_button(label="Download Normalized Counts",
+                                                         data=sorted_counts_text,
+                                                         file_name="normalized_counts.txt",
+                                                         mime="text/plain")
                 with col2:
-                    plot_normalized_counts(normalized_counts, label=page_title)
-                    plt.xlabel('Rank of Sequences')
-                    plt.ylabel('Normalized Recombination')
-                    plt.title('Rank vs. Normalized Recombination')
-                    plt.grid(True)
-                    plt.legend()
+                    plt.figure(figsize=(10, 6))
+                    plot_normalized_counts(normalized_counts)
+                    plt.xlabel("Rank")
+                    plt.ylabel("Normalized Recombination")
+                    plt.title("Rank vs Normalized Recombination")
                     st.pyplot(plt)
-                    
-    elif session_state_key in st.session_state and st.session_state[session_state_key] is not None:
-        normalized_counts = st.session_state[session_state_key]
-        col1, col2 = st.columns(2)
 
-        with col1:
-            sorted_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in normalized_counts])
-            st.text(sorted_counts_text)
+    log_memory_usage()
+    return normalized_counts if uploaded_file else None
 
-            sorted_counts_file = BytesIO()
-            sorted_counts_file.write(sorted_counts_text.encode())
-            sorted_counts_file.seek(0)
-
-            st.download_button(
-                label="Download Sorted Unique Sequences",
-                data=sorted_counts_file,
-                file_name="sorted_unique_sequences.txt",
-                mime="text/plain"
-            )
-
-        with col2:
-            plot_normalized_counts(normalized_counts, label=page_title)
-            plt.xlabel('Rank of Sequences')
-            plt.ylabel('Normalized Recombination')
-            plt.title('Rank vs. Normalized Recombination')
-            plt.grid(True)
-            plt.legend()
-            st.pyplot(plt)
-
-    return st.session_state[session_state_key]
-
-def average_normalized_page(file1_counts, file2_counts, file3_counts):
-    st.title("Average Normalized Read Counts")
-
-    if file1_counts and file2_counts and file3_counts:
-        all_sequences = set(seq for seq, _ in file1_counts) | set(seq for seq, _ in file2_counts) | set(seq for seq, _ in file3_counts)
-        average_counts = []
-
-        for seq in all_sequences:
-            counts = [
-                next((count for s, count in file1_counts if s == seq), 0),
-                next((count for s, count in file2_counts if s == seq), 0),
-                next((count for s, count in file3_counts if s == seq), 0)
-            ]
-            average_count = np.mean(counts)
-            average_counts.append((seq, average_count))
-
-        average_counts.sort(key=lambda item: item[1], reverse=True)
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.write("### Sorted Unique Sequences by Average Normalized Frequency")
-            sorted_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in average_counts])
-            st.text(sorted_counts_text)
-
-            sorted_counts_file = BytesIO()
-            sorted_counts_file.write(sorted_counts_text.encode())
-            sorted_counts_file.seek(0)
-
-            st.download_button(
-                label="Download Sorted Unique Sequences by Average Normalized Frequency",
-                data=sorted_counts_file,
-                file_name="sorted_unique_sequences_by_avg_norm_freq.txt",
-                mime="text/plain"
-            )
-
-        with col2:
-            ranks = list(range(1, len(average_counts) + 1))
-            average_values = [count for seq, count in average_counts]
-
-            plt.figure(figsize=(10, 6))
-            plt.plot(ranks, average_values, marker='o', linestyle='None', label='Average')
-
-            for file_counts, label in zip([file1_counts, file2_counts, file3_counts], ["File 1", "File 2", "File 3"]):
-                counts_dict = {seq: count for seq, count in file_counts}
-                file_values = [counts_dict.get(seq, 0) for seq, _ in average_counts]
-                plt.plot(ranks, file_values, marker='o', linestyle='None', label=label)
-
-            plt.xlabel('Rank of Sequences')
-            plt.ylabel('Normalized Recombination')
-            plt.title('Rank vs. Normalized Recombination')
-            plt.grid(True)
-            plt.legend()
-            st.pyplot(plt)
-
-# Initialize session state
-if 'file1_counts' not in st.session_state:
-    st.session_state.file1_counts = None
-if 'file2_counts' not in st.session_state:
-    st.session_state.file2_counts = None
-if 'file3_counts' not in st.session_state:
-    st.session_state.file3_counts = None
-
-# Page navigation
-page = st.selectbox("Select a page", ["File 1 Analysis", "File 2 Analysis", "File 3 Analysis", "Average Normalized Read Counts"])
+# Pages
+st.sidebar.title("Navigation")
+page = st.sidebar.selectbox("Go to", ["File 1 Analysis", "File 2 Analysis", "File 3 Analysis", "Comparison"])
 
 if page == "File 1 Analysis":
     st.session_state.file1_counts = sequence_analysis_page("File 1 Analysis", "file1", "file1_counts")
@@ -180,6 +87,29 @@ elif page == "File 2 Analysis":
     st.session_state.file2_counts = sequence_analysis_page("File 2 Analysis", "file2", "file2_counts")
 elif page == "File 3 Analysis":
     st.session_state.file3_counts = sequence_analysis_page("File 3 Analysis", "file3", "file3_counts")
-elif page == "Average Normalized Read Counts":
-    average_normalized_page(st.session_state.file1_counts, st.session_state.file2_counts, st.session_state.file3_counts)
+elif page == "Comparison":
+    if "file1_counts" in st.session_state and "file2_counts" in st.session_state and "file3_counts" in st.session_state:
+        all_counts = st.session_state.file1_counts + st.session_state.file2_counts + st.session_state.file3_counts
+        combined_counts = sort_and_count_sequences([seq for seq, count in all_counts])
+        normalized_combined = normalize_counts(combined_counts)
+
+        st.write("### Combined Sorted Unique Sequences by Frequency")
+        col1, col2 = st.columns(2)
+        with col1:
+            combined_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in normalized_combined])
+            st.text_area("Combined Normalized Counts", combined_counts_text, height=400)
+            download_button = st.download_button(label="Download Combined Normalized Counts",
+                                                 data=combined_counts_text,
+                                                 file_name="combined_normalized_counts.txt",
+                                                 mime="text/plain")
+        with col2:
+            plt.figure(figsize=(10, 6))
+            plot_normalized_counts(normalized_combined)
+            plt.xlabel("Rank")
+            plt.ylabel("Normalized Recombination")
+            plt.title("Combined Rank vs Normalized Recombination")
+            st.pyplot(plt)
+
+    else:
+        st.write("Please complete the analyses for File 1, File 2, and File 3 first.")
 

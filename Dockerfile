@@ -17,5 +17,4 @@ COPY . .
 EXPOSE 8501
 
 # Set the default command to run the Streamlit app
-CMD ["streamlit", "run", "streamlit_app.py"]
-
+CMD ["streamlit", "run", "Illumina_Analysis.py"]

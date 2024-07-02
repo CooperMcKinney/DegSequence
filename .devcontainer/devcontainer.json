@@ -1,31 +1,31 @@
-
-"name": "Streamlit Dev Container",
-"dockerFile": "Dockerfile",
-"settings": {
-  "terminal.integrated.shell.linux": "/bin/bash"
-},
-"extensions": [
-  "ms-python.python",
-  "ms-azuretools.vscode-docker"
-],
-"postCreateCommand": "pip install -r requirements.txt",
-"remoteUser": "vscode",
-"features": {
-  "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
-},
-"mounts": [
-  "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
-],
-"forwardPorts": [
-  8501
-],
-"portsAttributes": {
-  "8501": {
-    "label": "Streamlit"
+{
+  "name": "Streamlit Dev Container",
+  "dockerFile": "Dockerfile",
+  "settings": {
+    "terminal.integrated.shell.linux": "/bin/bash"
+  },
+  "extensions": [
+    "ms-python.python",
+    "ms-azuretools.vscode-docker"
+  ],
+  "postCreateCommand": "pip install -r requirements.txt",
+  "remoteUser": "vscode",
+  "features": {
+    "ghcr.io/devcontainers/features/docker-outside-of-docker:1": {}
+  },
+  "mounts": [
+    "source=/var/run/docker.sock,target=/var/run/docker.sock,type=bind"
+  ],
+  "forwardPorts": [
+    8501
+  ],
+  "portsAttributes": {
+    "8501": {
+      "label": "Streamlit"
+    }
+  },
+  "workspaceFolder": "/workspace",
+  "remoteEnv": {
+    "PYTHONPATH": "/workspace"
   }
-},
-"workspaceFolder": "/workspace",
-"remoteEnv": {
-  "PYTHONPATH": "/workspace"
-}
 }

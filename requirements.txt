@@ -1,0 +1,5 @@
+streamlit==1.30.0
+folium==0.13.0
+streamlit-folium
+matplotlib
+

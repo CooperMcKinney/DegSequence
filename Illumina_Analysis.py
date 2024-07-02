@@ -1,100 +1,131 @@
 import streamlit as st
-import re
-from collections import Counter
+import pandas as pd
 import matplotlib.pyplot as plt
-import numpy as np
+import io
 
-# Function to reverse complement a DNA sequence
-def reverse_complement_sequence(sequence):
-    complement = str.maketrans('ACGTacgt', 'TGCAtgca')
-    return sequence.translate(complement)[::-1]
+# Function to handle file upload and analysis
+def sequence_analysis_page(title, session_key_file, session_key_counts):
+    st.title(title)
+    
+    uploaded_file = st.file_uploader("Upload a file", type=["fastqsanger"], key=session_key_file)
+    
+    if uploaded_file:
+        file_content = uploaded_file.getvalue().decode('utf-8')
+        sequences = file_content.splitlines()
+        
+        sequence_to_search = st.text_input("Enter sequence to search for")
+        
+        if sequence_to_search:
+            search_count = sum(seq.count(sequence_to_search) for seq in sequences)
+            st.write(f"Found {search_count} occurrences of the sequence.")
+            
+            trimmed_sequence = st.text_input("Enter trimmed sequence to analyze")
+            
+            if trimmed_sequence:
+                trimmed_counts = [seq.count(trimmed_sequence) for seq in sequences]
+                max_count = max(trimmed_counts)
+                normalized_counts = [(seq, count / max_count) for seq, count in zip(sequences, trimmed_counts) if count > 0]
+                normalized_counts.sort(key=lambda x: x[1], reverse=True)
+                
+                st.session_state[session_key_counts] = normalized_counts
+                
+                # Display normalized counts
+                sorted_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in normalized_counts])
+                st.text_area("Sorted Unique Sequences by Frequency", value=sorted_counts_text, height=300)
+                
+                # Download button
+                sorted_counts_io = io.StringIO(sorted_counts_text)
+                st.download_button(
+                    label="Download Sorted Unique Sequences by Frequency",
+                    data=sorted_counts_io.getvalue(),
+                    file_name="sorted_unique_sequences.txt",
+                    mime="text/plain"
+                )
+                
+                # Plotting
+                ranks = list(range(1, len(normalized_counts) + 1))
+                normalized_values = [count for seq, count in normalized_counts]
+                plt.figure(figsize=(10, 6))
+                plt.scatter(ranks, normalized_values)
+                plt.xlabel('Rank')
+                plt.ylabel('Normalized Recombination')
+                plt.title('Rank vs Normalized Recombination')
+                plt.grid(True)
+                st.pyplot(plt)
 
-# Function to extract patterns from a sequence
-def extract_pattern(sequence, pattern):
-    return re.findall(pattern, sequence)
+    return st.session_state.get(session_key_counts, None)
 
-# Function to sort and count sequences
-def sort_and_count_sequences(sequences):
-    sequence_counts = Counter(sequences)
-    sorted_counts = sorted(sequence_counts.items(), key=lambda item: item[1], reverse=True)
-    return sorted_counts
+# Function to compare sequences from multiple files
+def comparison_page(file1_counts, file2_counts, file3_counts):
+    st.title("Comparison of Sequences")
+    
+    if file1_counts and file2_counts and file3_counts:
+        combined_counts = {}
+        
+        for seq, count in file1_counts:
+            if seq not in combined_counts:
+                combined_counts[seq] = []
+            combined_counts[seq].append(count)
+        
+        for seq, count in file2_counts:
+            if seq not in combined_counts:
+                combined_counts[seq] = []
+            combined_counts[seq].append(count)
+        
+        for seq, count in file3_counts:
+            if seq not in combined_counts:
+                combined_counts[seq] = []
+            combined_counts[seq].append(count)
+        
+        average_counts = [(seq, sum(counts) / len(counts)) for seq, counts in combined_counts.items()]
+        average_counts.sort(key=lambda x: x[1], reverse=True)
+        
+        # Display average counts
+        sorted_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in average_counts])
+        st.text_area("Average Normalized Counts", value=sorted_counts_text, height=300)
+        
+        # Plotting
+        ranks = list(range(1, len(average_counts) + 1))
+        avg_normalized_values = [count for seq, count in average_counts]
+        
+        plt.figure(figsize=(10, 6))
+        plt.scatter(ranks, avg_normalized_values, label='Average', color='black')
 
-# Function to normalize counts by the highest count
-def normalize_counts(counts):
-    max_count = max(counts, key=lambda item: item[1])[1]
-    return [(seq, count / max_count) for seq, count in counts]
+        for seq, count in file1_counts:
+            plt.scatter(ranks, [c for s, c in average_counts if s == seq], label='File 1', color='red')
+        
+        for seq, count in file2_counts:
+            plt.scatter(ranks, [c for s, c in average_counts if s == seq], label='File 2', color='green')
+        
+        for seq, count in file3_counts:
+            plt.scatter(ranks, [c for s, c in average_counts if s == seq], label='File 3', color='blue')
 
-# Function to plot normalized counts
-def plot_normalized_counts(normalized_counts, label=None):
-    ranks = np.arange(1, len(normalized_counts) + 1)
-    normalized_values = [count for _, count in normalized_counts]
-    plt.scatter(ranks, normalized_values, label=label)
-    plt.xlabel('Rank')
-    plt.ylabel('Normalized Recombination')
-    plt.title('Rank vs Normalized Recombination')
-    if label:
+        plt.xlabel('Rank')
+        plt.ylabel('Normalized Recombination')
+        plt.title('Rank vs Normalized Recombination Across Files')
+        plt.grid(True)
         plt.legend()
+        st.pyplot(plt)
 
-# Function to handle sequence analysis page
-def sequence_analysis_page(page_title, key_prefix):
-    st.title(page_title)
-    uploaded_file = st.file_uploader("Upload a FASTQ or FASTQSanger file", type=["fastq", "fastqsanger", "txt"], key=key_prefix)
-
-    if uploaded_file is not None:
-        sequence = uploaded_file.getvalue().decode("utf-8").strip()
-        search_pattern = st.text_input("Enter the pattern to search for (use '.' for any character):", "GTGCAC...........CTAA.A.A......TACC.GA.", key=f"{key_prefix}_search")
-        trimmed_pattern = st.text_input("Trimmed sequences", "CTAA.A.A......TACC", key=f"{key_prefix}_trimmed")
-
-        if st.button('Search Patterns', key=f"{key_prefix}_search_button"):
-            reverse_complement = reverse_complement_sequence(sequence)
-            matches = extract_pattern(reverse_complement, search_pattern)
-            st.write("### Pattern Extraction Results")
-            st.write(f"Number of sequences found: {len(matches)}")
-
-            if trimmed_pattern:
-                degseq_matches = extract_pattern("\n".join(matches), trimmed_pattern)
-                sorted_counts = sort_and_count_sequences(degseq_matches)
-                normalized_counts = normalize_counts(sorted_counts)
-
-                st.write("### Sorted Unique Sequences by Frequency")
-                col1, col2 = st.columns(2)
-                with col1:
-                    sorted_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in normalized_counts])
-                    st.text_area("Normalized Counts", sorted_counts_text, height=400)
-                    st.download_button(label="Download Normalized Counts", data=sorted_counts_text, file_name="normalized_counts.txt", mime="text/plain")
-                with col2:
-                    plt.figure(figsize=(10, 6))
-                    plot_normalized_counts(normalized_counts)
-                    st.pyplot(plt)
-
-    return normalized_counts if uploaded_file else None
-
-# Pages
+# Define the pages
+st.set_page_config(layout="wide")
 st.sidebar.title("Navigation")
-page = st.sidebar.selectbox("Go to", ["File 1 Analysis", "File 2 Analysis", "File 3 Analysis", "Comparison"])
+page = st.sidebar.radio("Go to", ["File 1 Analysis", "File 2 Analysis", "File 3 Analysis", "Comparison"])
 
+# Initialize session state
+if 'file1_counts' not in st.session_state:
+    st.session_state['file1_counts'] = None
+if 'file2_counts' not in st.session_state:
+    st.session_state['file2_counts'] = None
+if 'file3_counts' not in st.session_state:
+    st.session_state['file3_counts'] = None
+
+# Page navigation
 if page == "File 1 Analysis":
-    st.session_state.file1_counts = sequence_analysis_page("File 1 Analysis", "file1")
+    st.session_state.file1_counts = sequence_analysis_page("File 1 Analysis", "file1", "file1_counts")
 elif page == "File 2 Analysis":
-    st.session_state.file2_counts = sequence_analysis_page("File 2 Analysis", "file2")
+    st.session_state.file2_counts = sequence_analysis_page("File 2 Analysis", "file2", "file2_counts")
 elif page == "File 3 Analysis":
-    st.session_state.file3_counts = sequence_analysis_page("File 3 Analysis", "file3")
+    st.session_state.file3_counts = sequence_analysis_page("File 3 Analysis", "file3", "file3_counts")
 elif page == "Comparison":
-    if "file1_counts" in st.session_state and "file2_counts" in st.session_state and "file3_counts" in st.session_state:
-        all_counts = st.session_state.file1_counts + st.session_state.file2_counts + st.session_state.file3_counts
-        combined_counts = sort_and_count_sequences([seq for seq, count in all_counts])
-        normalized_combined = normalize_counts(combined_counts)
-
-        st.write("### Combined Sorted Unique Sequences by Frequency")
-        col1, col2 = st.columns(2)
-        with col1:
-            combined_counts_text = "\n".join([f"{count:.4f} {seq}" for seq, count in normalized_combined])
-            st.text_area("Combined Normalized Counts", combined_counts_text, height=400)
-            st.download_button(label="Download Combined Normalized Counts", data=combined_counts_text, file_name="combined_normalized_counts.txt", mime="text/plain")
-        with col2:
-            plt.figure(figsize=(10, 6))
-            plot_normalized_counts(normalized_combined)
-            st.pyplot(plt)
-    else:
-        st.write("Please complete the analyses for File 1, File 2, and File 3 first.")
-
+    comparison_page(st.session_state.file1_counts, st.session_state.file2_counts, st.session_state.file3_counts)
